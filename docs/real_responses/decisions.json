@@ -1,0 +1,102 @@
+{
+  "items": [
+    {
+      "command_id": "cmd_capture_07",
+      "session_id": "sess_demo",
+      "source_id": "controller_A",
+      "command_type": "CONNECT",
+      "value": null,
+      "unit": null,
+      "decision": "BLOCK",
+      "rule_triggered": "auth.invalid_token",
+      "reason": "Invalid authentication token",
+      "state_before": null,
+      "state_after": null,
+      "received_at": "2026-09-19T15:09:33.393Z"
+    },
+    {
+      "command_id": "cmd_capture_06",
+      "session_id": "sess_invalid_state",
+      "source_id": "controller_A",
+      "command_type": "START_CHARGING",
+      "value": null,
+      "unit": null,
+      "decision": "BLOCK",
+      "rule_triggered": "state.invalid_transition",
+      "reason": "START_CHARGING is not valid while the session is DISCONNECTED",
+      "state_before": "DISCONNECTED",
+      "state_after": "DISCONNECTED",
+      "received_at": "2026-09-19T15:09:33.385Z"
+    },
+    {
+      "command_id": "cmd_capture_05",
+      "session_id": "sess_demo",
+      "source_id": "controller_A",
+      "command_type": "SET_POWER",
+      "value": 20.0,
+      "unit": "kW",
+      "decision": "BLOCK",
+      "rule_triggered": "policy.power_limit",
+      "reason": "Requested power 20.0 kW exceeds session maximum of 7.0 kW",
+      "state_before": "CHARGING",
+      "state_after": "CHARGING",
+      "received_at": "2026-09-19T15:09:33.365Z"
+    },
+    {
+      "command_id": "cmd_capture_04",
+      "session_id": "sess_demo",
+      "source_id": "controller_A",
+      "command_type": "SET_POWER",
+      "value": 5.0,
+      "unit": "kW",
+      "decision": "ALLOW",
+      "rule_triggered": "ok",
+      "reason": "All checks passed",
+      "state_before": "CHARGING",
+      "state_after": "CHARGING",
+      "received_at": "2026-09-19T15:09:33.354Z"
+    },
+    {
+      "command_id": "cmd_capture_03",
+      "session_id": "sess_demo",
+      "source_id": "controller_A",
+      "command_type": "START_CHARGING",
+      "value": null,
+      "unit": null,
+      "decision": "ALLOW",
+      "rule_triggered": "ok",
+      "reason": "All checks passed",
+      "state_before": "AUTHORIZED",
+      "state_after": "CHARGING",
+      "received_at": "2026-09-19T15:09:33.343Z"
+    },
+    {
+      "command_id": "cmd_capture_02",
+      "session_id": "sess_demo",
+      "source_id": "controller_A",
+      "command_type": "AUTHORIZE_SESSION",
+      "value": null,
+      "unit": null,
+      "decision": "ALLOW",
+      "rule_triggered": "ok",
+      "reason": "All checks passed",
+      "state_before": "CONNECTED",
+      "state_after": "AUTHORIZED",
+      "received_at": "2026-09-19T15:09:33.332Z"
+    },
+    {
+      "command_id": "cmd_capture_01",
+      "session_id": "sess_demo",
+      "source_id": "controller_A",
+      "command_type": "CONNECT",
+      "value": null,
+      "unit": null,
+      "decision": "ALLOW",
+      "rule_triggered": "ok",
+      "reason": "All checks passed",
+      "state_before": "DISCONNECTED",
+      "state_after": "CONNECTED",
+      "received_at": "2026-09-19T15:09:33.321Z"
+    }
+  ]
+}

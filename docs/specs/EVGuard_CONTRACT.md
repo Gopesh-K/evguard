@@ -1,4 +1,4 @@
-# EVGuard Shared Contract — v1.0
+# EVGuard Shared Contract — v1.1
 
 **Owner:** Role 1 — Gopesh (team lead). Only Gopesh edits this file.
 **Team:** Role 1 Gopesh (core engine, backend, final integration) · Role 2 Videsh (simulator, scenarios, baseline) · Role 3 Vishwajit (dashboard, `backend/schemas.py`, QA + demo)
@@ -51,7 +51,7 @@ Always run commands **from the project root folder**.
 ```python
 """EVGuard shared contract. Owned by Role 1. Do not edit your copy."""
 
-CONTRACT_VERSION = "1.0"
+CONTRACT_VERSION = "1.1"
 
 # ---- States -----------------------------------------------------------
 STATES = ["DISCONNECTED", "CONNECTED", "AUTHORIZED", "CHARGING", "STOPPED"]
@@ -121,7 +121,7 @@ ROLE_PERMISSIONS = {
 DEFAULT_MAX_POWER_KW = 7.0
 DEFAULT_MAX_CURRENT_A = 32.0
 RATE_WINDOW_SECONDS = 10
-RATE_MAX_COMMANDS = 5  # per (source_id, session_id) per window
+RATE_MAX_COMMANDS = 10  # per (source_id, session_id) per window
 
 # ---- Shared key lists (for tests) --------------------------------------
 COMMAND_KEYS = ["command_id", "timestamp", "session_id", "source_id",
@@ -178,6 +178,8 @@ SNAPSHOT_KEYS = ["session_id", "vehicle_id", "plugged_in", "charging",
 ```
 
 On ALLOW, `rule_triggered` is `"ok"`. On BLOCK, `state_after == state_before`. The token is **never** included.
+
+**Nullable fields (v1.1):** `state_before`/`state_after` are `null` when the command fails input, duplicate-ID or authentication checks (unauthenticated callers never learn session state). `session_id`, `source_id`, `command_type`, `value`, `unit` are `null` when the input is malformed. Consumers (dashboard) must display `null` as "—".
 
 ### 3.3 Session (engine view + physical snapshot)
 
@@ -257,7 +259,7 @@ Steps omit `command_id`, `timestamp` and `session_id`; the runner fills them in.
 | `excess_current` | SHOULD | `sess_excess_current` | CHARGING, SET_CURRENT 16 A ALLOW, SET_CURRENT 40 A BLOCK `policy.current_limit` |
 | `invalid_token` | SHOULD | `sess_invalid_token` | CONNECT with token `bad-token` → BLOCK `auth.invalid_token` |
 | `unauthorized_role` | SHOULD | `sess_unauthorized` | `monitor_01` (valid token) sends CONNECT → BLOCK `authz.command_not_permitted` |
-| `rate_burst` | SHOULD | `sess_rate_burst` | 3 setup commands + 7 × SET_POWER 5 kW → steps 1–5 ALLOW, steps 6–10 BLOCK `sequence.rate_exceeded` |
+| `rate_burst` | SHOULD | `sess_rate_burst` | 3 setup commands + 12 × SET_POWER 5 kW → steps 1–10 ALLOW, steps 11–15 BLOCK `sequence.rate_exceeded` |
 | `full_lifecycle` | SHOULD | `sess_lifecycle` | CONNECT → AUTHORIZE → START → SET_POWER 7 (at limit, ALLOW) → STOP → DISCONNECT all ALLOW, then DISCONNECT again → BLOCK `state.invalid_transition` |
 
 **Rate rule (important):** the window counts every command for the same `(source_id, session_id)` that passed authentication, whether allowed or blocked. Creating/resetting a session clears its window. Each scenario uses its own session, so running scenarios back-to-back never triggers false rate blocks.
@@ -377,3 +379,4 @@ Nobody adds a new dependency without a CONTRACT REQUEST. At handoff, include the
 
 - 1.0 — initial contract.
 - 1.0a — ownership only: `backend/schemas.py` moved to Role 3. No interface change.
+- 1.1 — `RATE_MAX_COMMANDS` 5 → 10 (5 caused false blocks in `full_lifecycle` and the live demo). `rate_burst` is now 3 setup + 12 SET_POWER (1–10 ALLOW, 11–15 BLOCK). Decision fields documented as nullable. The same `command_id` may appear more than once in `/commands`; the duplicate attempt is logged as a BLOCK.

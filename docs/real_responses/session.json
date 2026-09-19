@@ -1,0 +1,18 @@
+{
+  "session_id": "sess_demo",
+  "vehicle_id": "Vehicle-01",
+  "state": "CHARGING",
+  "max_power_kw": 7.0,
+  "max_current_a": 32.0,
+  "updated_at": "2026-09-19T15:09:33.354Z",
+  "physical": {
+    "session_id": "sess_demo",
+    "vehicle_id": "Vehicle-01",
+    "plugged_in": false,
+    "charging": false,
+    "power_kw": 0.0,
+    "current_a": 0.0,
+    "last_command": null,
+    "updated_at": "2026-09-19T15:09:33.354Z"
+  }
+}

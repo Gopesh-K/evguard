@@ -1,0 +1,14 @@
+{
+  "command_id": "cmd_capture_05",
+  "session_id": "sess_demo",
+  "source_id": "controller_A",
+  "command_type": "SET_POWER",
+  "value": 20.0,
+  "unit": "kW",
+  "decision": "BLOCK",
+  "rule_triggered": "policy.power_limit",
+  "reason": "Requested power 20.0 kW exceeds session maximum of 7.0 kW",
+  "state_before": "CHARGING",
+  "state_after": "CHARGING",
+  "received_at": "2026-09-19T15:09:33.365Z"
+}
