@@ -391,9 +391,9 @@ The sender is authenticated and authorized; the command is inconsistent with the
 ### Attack 3 — Abnormal command rate
 
 ```text
-Policy: max 5 commands per sender per 10 s
-10 rapid SET_POWER 5 kW commands
-→ first 5 ALLOW, commands 6–10 BLOCK   rule: sequence.rate_exceeded
+Policy: max 10 commands per source+session per 10 s
+3 setup commands + 12 rapid SET_POWER 5 kW commands
+→ steps 1–10 ALLOW, steps 11–15 BLOCK   rule: sequence.rate_exceeded
 ```
 
 Thresholds are demo values, not EV industry limits.
@@ -432,6 +432,8 @@ source_id = monitor_01 (role: monitor), command = SET_POWER
 | `ok` | All checks passed (ALLOW) |
 
 Schema-invalid requests are rejected by FastAPI with HTTP 422 before reaching the engine and are not executed.
+
+> **Interim note:** the temporary `backend/schemas.py` returns 422 only for missing fields and wrong types (for example a string or boolean `value`). Command-specific and range cases (value/unit pairing, unit mismatch, non-finite or non-positive value, unknown `command_type`, ID patterns) currently return HTTP 200 BLOCK `input.invalid`; full 422 coverage lands with the final `schemas.py`. See CONTRACT §6.
 
 ---
 
@@ -615,7 +617,7 @@ defaults:
 
 sequence:
   window_seconds: 10
-  max_commands_per_source: 5
+  max_commands_per_source: 10
 
 roles:
   controller:
@@ -658,9 +660,9 @@ Only **actually executed** test results will be shown in the presentation.
 | Valid token, wrong `source_id` | BLOCK `auth.source_mismatch` |
 | Monitor role sends `SET_POWER` | BLOCK `authz.command_not_permitted` |
 | Unknown session | BLOCK `session.unknown` |
-| `SET_POWER` missing value / negative / wrong unit | HTTP 422 |
-| `CONNECT` with a value | HTTP 422 |
-| 10 commands in 10 s from one source (limit 5) | 6th onward BLOCK `sequence.rate_exceeded` |
+| `SET_POWER` missing value / negative / wrong unit | HTTP 422 with the final schema (temporary schema: HTTP 200 BLOCK `input.invalid`) |
+| `CONNECT` with a value | HTTP 422 with the final schema (temporary schema: HTTP 200 BLOCK `input.invalid`) |
+| 15 commands in 10 s from one source+session (limit 10) | 11th onward BLOCK `sequence.rate_exceeded` |
 | Reused `command_id` | BLOCK `sequence.duplicate_command_id` |
 | Engine exception (injected in test) | BLOCK `engine.internal_error`, simulator unchanged |
 | Any BLOCK | simulator state and setpoint unchanged |
@@ -729,7 +731,7 @@ ML models, real OCPP/ISO 15118 message handling, real hardware, blockchain, clou
 | 0:30–1:10 | **Normal session:** CONNECT → AUTHORIZE_SESSION → START_CHARGING → SET_POWER 5 kW | Four green ALLOWs |
 | 1:10–1:50 | **Unsafe command:** SET_POWER 20 kW from the same valid controller | Red BLOCK, `policy.power_limit`, "20 kW > 7 kW" |
 | 1:50–2:30 | **Invalid state:** STOP_CHARGING → DISCONNECT, then START_CHARGING | BLOCK, `state.invalid_transition` |
-| 2:30–3:00 | **Rate burst** (optional) | First 5 ALLOW, rest BLOCK `sequence.rate_exceeded` |
+| 2:30–3:00 | **Rate burst** (optional) | First 10 commands ALLOW (3 setup + 7 × SET_POWER), rest BLOCK `sequence.rate_exceeded` |
 | 3:00–3:30 | **Baseline comparison:** same 20 kW command to baseline simulator | Baseline applies 20 kW; EVGuard blocked it |
 | 3:30–4:00 | **Audit log** | time, command, decision, rule, reason, state before/after |
 

@@ -1,5 +1,9 @@
 """EVGuard shared contract. Owned by Role 1. Do not edit your copy."""
 
+# CANONICAL FILE: this is the single source of truth (the code imports it).
+# contract/CONTRACT.md and docs/specs/EVGuard_CONTRACT.md are read-only mirrors:
+# edit this file first, then re-copy it into their Python block. Never edit a mirror alone.
+
 CONTRACT_VERSION = "1.1"
 
 # ---- States -----------------------------------------------------------
@@ -39,7 +43,7 @@ BLOCK = "BLOCK"
 
 RULES = {
     "ok": "All checks passed",
-    "input.invalid": "Command is malformed (direct Python calls only; HTTP returns 422)",
+    "input.invalid": "Command is malformed (schema violations return HTTP 422; other malformed commands return BLOCK)",
     "auth.missing_token": "No token supplied",
     "auth.invalid_token": "Token unknown",
     "auth.source_mismatch": "Token belongs to a different source_id",

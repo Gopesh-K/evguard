@@ -3,7 +3,9 @@
 import logging
 from types import SimpleNamespace
 
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import FastAPI, HTTPException, Query, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from backend.schemas import CommandIn
 from config.loader import load_policy
@@ -16,7 +18,19 @@ app = FastAPI(
     version=CONTRACT_VERSION,
 )
 
-logger = logging.getLogger("uvicorn.error")
+
+@app.exception_handler(RequestValidationError)
+def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Return 422 with only type, loc and msg for each error.
+
+    FastAPI's default response echoes the submitted input, which can hold the
+    auth_token and crashes with a 500 on NaN. "input" and "ctx" are dropped.
+    """
+    errors = [{"type": e["type"], "loc": list(e["loc"]), "msg": e["msg"]} for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": errors})
+
+
+logger =logging.getLogger("uvicorn.error")
 
 # Fail closed: an invalid config raises here and the app does not start.
 policy = load_policy()
