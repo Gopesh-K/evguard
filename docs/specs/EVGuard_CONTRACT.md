@@ -331,7 +331,7 @@ class CommandIn(BaseModel):
     def to_command(self) -> dict: ...  # returns a dict with exactly COMMAND_KEYS
 ```
 
-Role 1 uses it as `@app.post("/command") def post_command(cmd: CommandIn): return gateway.handle(cmd.to_command())`. FastAPI turns validation failures into HTTP 422 automatically. See the interim behaviour note under §6 for what the temporary `schemas.py` covers today.
+Role 1 uses it as `@app.post("/command") def post_command(cmd: CommandIn): return gateway.handle(cmd.to_command())`. FastAPI turns validation failures into HTTP 422 automatically.
 
 ### Role 3 — `dashboard/api_client.py`
 
@@ -346,7 +346,7 @@ Base URL: `http://127.0.0.1:8000` (override with env var `EVGUARD_API_URL`).
 | Method | Path | Body | Returns |
 |---|---|---|---|
 | GET | `/health` | — | `{"status": "ok", "contract_version": "1.1"}` |
-| POST | `/command` | Command §3.1 | Decision §3.2 (HTTP 422 if the schema rejects it; see interim note below) |
+| POST | `/command` | Command §3.1 | Decision §3.2 (HTTP 422 if the schema rejects it) |
 | GET | `/commands?limit=50` | — | `{"items": [Decision, ...]}` newest first, limit ≤ 200 |
 | GET | `/commands/{command_id}` | — | Decision or 404 |
 | GET | `/sessions/{session_id}` | — | Session §3.3 or 404 |
@@ -356,12 +356,7 @@ Base URL: `http://127.0.0.1:8000` (override with env var `EVGUARD_API_URL`).
 | POST | `/scenarios/{name}` | — | Scenario result §3.6 (404 unknown name) |
 | POST | `/baseline/command` | Command §3.1 | `{"mode":"baseline","accepted":true,"snapshot":{...}}` |
 
-**Interim behaviour of `POST /command` (temporary `backend/schemas.py`).** The full request validation described in §5 (Role 3) is not in place yet. Until the final `schemas.py` handoff:
-
-- **HTTP 422 today:** a missing required field, or a wrong JSON type (for example a string or boolean where `value` needs a number, or a non-string ID).
-- **HTTP 200 with `decision: BLOCK`, `rule_triggered: input.invalid` today:** everything that needs command-specific rules, range checks or string patterns: `value` and `unit` required together for `SET_POWER`/`SET_CURRENT` (and absent for every other command), `unit` matching the command (`kW` for `SET_POWER`, `A` for `SET_CURRENT`), `value` not finite or not greater than 0, `command_type` not in `COMMANDS`, IDs not matching `^[A-Za-z0-9_-]{1,64}$`, and over-length `auth_token`/`timestamp`.
-
-The temporary schema returns HTTP 200 BLOCK `input.invalid` for these cases; full HTTP 422 coverage for command-specific rules lands with the final `schemas.py` handoff. Nothing malformed is ever executed either way: the engine blocks it and logs the decision.
+All malformed commands are rejected with HTTP 422 at the API layer by the final `backend/schemas.py` and never reach the engine: missing fields, wrong JSON types (strings and booleans are not accepted as `value`), `value`/`unit` pairing, unit mismatch, non-finite or non-positive `value`, unknown `command_type`, ID patterns, and over-length `auth_token`/`timestamp`. 422 bodies never echo submitted values.
 
 ---
 
@@ -394,3 +389,4 @@ Nobody adds a new dependency without a CONTRACT REQUEST. At handoff, include the
 - 1.0a — ownership only: `backend/schemas.py` moved to Role 3. No interface change.
 - 1.1 — `RATE_MAX_COMMANDS` 5 → 10 (5 caused false blocks in `full_lifecycle` and the live demo). `rate_burst` is now 3 setup + 12 SET_POWER (1–10 ALLOW, 11–15 BLOCK). Decision fields documented as nullable. The same `command_id` may appear more than once in `/commands`; the duplicate attempt is logged as a BLOCK.
 - 1.1a — documentation only (`CONTRACT_VERSION` stays "1.1"): `contract/evguard_contract.py` declared canonical and the two Markdown copies declared read-only mirrors; §6 `/health` example corrected to "1.1"; §6 interim-422 note added; `input.invalid` rule description reworded (text only, no ID or key changes); rate wording aligned everywhere to `RATE_MAX_COMMANDS` = 10 per `RATE_WINDOW_SECONDS` = 10 s.
+- 1.1b — final schemas.py landed; malformed commands return HTTP 422

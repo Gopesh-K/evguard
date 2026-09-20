@@ -433,7 +433,7 @@ source_id = monitor_01 (role: monitor), command = SET_POWER
 
 Schema-invalid requests are rejected by FastAPI with HTTP 422 before reaching the engine and are not executed.
 
-> **Interim note:** the temporary `backend/schemas.py` returns 422 only for missing fields and wrong types (for example a string or boolean `value`). Command-specific and range cases (value/unit pairing, unit mismatch, non-finite or non-positive value, unknown `command_type`, ID patterns) currently return HTTP 200 BLOCK `input.invalid`; full 422 coverage lands with the final `schemas.py`. See CONTRACT §6.
+> All malformed commands (missing fields, wrong types, value/unit pairing, non-finite or non-positive values, unknown `command_type`, ID patterns) return HTTP 422 from the final `backend/schemas.py`. See CONTRACT §6.
 
 ---
 

@@ -6,6 +6,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StrictFloat,
     field_validator,
     model_validator,
 )
@@ -39,7 +40,7 @@ class CommandIn(BaseModel):
         "DISCONNECT",
     ]
 
-    value: float | None = None
+    value: StrictFloat | None = None
     unit: str | None = None
 
     @field_validator("command_id", "session_id", "source_id")
