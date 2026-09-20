@@ -1,0 +1,87 @@
+{
+  "items": [
+    {
+      "name": "normal_session",
+      "title": "Normal session",
+      "description": "CONNECT → AUTHORIZE_SESSION → START_CHARGING → SET_POWER 5 kW → all ALLOW"
+    },
+    {
+      "name": "excess_power",
+      "title": "Excess power attack",
+      "description": "Reach CHARGING, then request 20 kW on a 7 kW session → BLOCK"
+    },
+    {
+      "name": "invalid_state",
+      "title": "Invalid state attack",
+      "description": "Fresh session sends START_CHARGING before authorization → BLOCK"
+    },
+    {
+      "name": "excess_current",
+      "title": "Excess current attack",
+      "description": "SET_CURRENT 16 A ALLOW, then SET_CURRENT 40 A → BLOCK"
+    },
+    {
+      "name": "invalid_token",
+      "title": "Invalid token",
+      "description": "CONNECT using an unknown token → BLOCK"
+    },
+    {
+      "name": "unauthorized_role",
+      "title": "Unauthorized role",
+      "description": "Read-only monitor attempts CONNECT → BLOCK"
+    },
+    {
+      "name": "rate_burst",
+      "title": "Rate burst",
+      "description": "Rapid commands exceed the configured command rate → BLOCK"
+    },
+    {
+      "name": "full_lifecycle",
+      "title": "Full lifecycle",
+      "description": "Complete charging lifecycle followed by an invalid duplicate disconnect"
+    }
+  ]
+}{
+  "items": [
+    {
+      "name": "normal_session",
+      "title": "Normal session",
+      "description": "CONNECT → AUTHORIZE_SESSION → START_CHARGING → SET_POWER 5 kW → all ALLOW"
+    },
+    {
+      "name": "excess_power",
+      "title": "Excess power attack",
+      "description": "Reach CHARGING, then request 20 kW on a 7 kW session → BLOCK"
+    },
+    {
+      "name": "invalid_state",
+      "title": "Invalid state attack",
+      "description": "Fresh session sends START_CHARGING before authorization → BLOCK"
+    },
+    {
+      "name": "excess_current",
+      "title": "Excess current attack",
+      "description": "SET_CURRENT 16 A ALLOW, then SET_CURRENT 40 A → BLOCK"
+    },
+    {
+      "name": "invalid_token",
+      "title": "Invalid token",
+      "description": "CONNECT using an unknown token → BLOCK"
+    },
+    {
+      "name": "unauthorized_role",
+      "title": "Unauthorized role",
+      "description": "Read-only monitor attempts CONNECT → BLOCK"
+    },
+    {
+      "name": "rate_burst",
+      "title": "Rate burst",
+      "description": "Rapid commands exceed the configured command rate → BLOCK"
+    },
+    {
+      "name": "full_lifecycle",
+      "title": "Full lifecycle",
+      "description": "Complete charging lifecycle followed by an invalid duplicate disconnect"
+    }
+  ]
+}
