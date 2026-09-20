@@ -1,0 +1,44 @@
+{
+  "name": "excess_current",
+  "title": "Excess current attack",
+  "description": "Valid controller attempts to draw 40 A on a session capped at 32 A.",
+  "session": {
+    "session_id": "sess_excess_current",
+    "vehicle_id": "Vehicle-01",
+    "max_power_kw": 7.0,
+    "max_current_a": 32.0
+  },
+  "steps": [
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "CONNECT",
+      "expect": "ALLOW",
+      "expect_rule": "ok"
+    },
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "AUTHORIZE_SESSION",
+      "expect": "ALLOW",
+      "expect_rule": "ok"
+    },
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "START_CHARGING",
+      "expect": "ALLOW",
+      "expect_rule": "ok"
+    },
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "SET_CURRENT",
+      "value": 40.0,
+      "unit": "A",
+      "expect": "BLOCK",
+      "expect_rule": "policy.current_limit"
+    }
+  ]
+}
+

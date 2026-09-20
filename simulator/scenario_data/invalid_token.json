@@ -1,0 +1,21 @@
+{
+  "name": "invalid_token",
+  "title": "Invalid authentication token",
+  "description": "Controller sends a command with an invalid authentication token.",
+  "session": {
+    "session_id": "sess_invalid_token",
+    "vehicle_id": "Vehicle-01",
+    "max_power_kw": 7.0,
+    "max_current_a": 32.0
+  },
+  "steps": [
+    {
+      "source_id": "controller_A",
+      "auth_token": "bad-token",
+      "command_type": "CONNECT",
+      "expect": "BLOCK",
+      "expect_rule": "auth.invalid_token"
+    }
+  ]
+}
+

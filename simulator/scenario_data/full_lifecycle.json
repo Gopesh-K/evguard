@@ -1,0 +1,67 @@
+{
+  "name": "full_lifecycle",
+  "title": "Full charging lifecycle",
+  "description": "Complete valid lifecycle covering connect, authorize, start charging, set power, set current, stop charging, and disconnect.",
+  "session": {
+    "session_id": "sess_lifecycle",
+    "vehicle_id": "Vehicle-01",
+    "max_power_kw": 7.0,
+    "max_current_a": 32.0
+  },
+  "steps": [
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "CONNECT",
+      "expect": "ALLOW",
+      "expect_rule": "ok"
+    },
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "AUTHORIZE_SESSION",
+      "expect": "ALLOW",
+      "expect_rule": "ok"
+    },
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "START_CHARGING",
+      "expect": "ALLOW",
+      "expect_rule": "ok"
+    },
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "SET_POWER",
+      "value": 5.0,
+      "unit": "kW",
+      "expect": "ALLOW",
+      "expect_rule": "ok"
+    },
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "SET_CURRENT",
+      "value": 16.0,
+      "unit": "A",
+      "expect": "ALLOW",
+      "expect_rule": "ok"
+    },
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "STOP_CHARGING",
+      "expect": "ALLOW",
+      "expect_rule": "ok"
+    },
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "DISCONNECT",
+      "expect": "ALLOW",
+      "expect_rule": "ok"
+    }
+  ]
+}
+
