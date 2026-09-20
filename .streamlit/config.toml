@@ -1,2 +1,13 @@
 [browser]
 gatherUsageStats = false
+
+# Dark security-product theme. Text/background pairs meet WCAG AA contrast.
+# Semantic colours (green = ALLOW, red = BLOCK, amber = warning) live in
+# dashboard/styles.py so they stay consistent across the page.
+[theme]
+base = "dark"
+primaryColor = "#38bdf8"
+backgroundColor = "#0b1220"
+secondaryBackgroundColor = "#111a2e"
+textColor = "#e5e9f0"
+font = "sans serif"

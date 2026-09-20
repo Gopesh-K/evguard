@@ -626,13 +626,14 @@ evguard/
 ├── dashboard/
 │   ├── app.py               # single-page Streamlit dashboard
 │   ├── api_client.py        # the dashboard's only link to the backend
+│   ├── styles.py            # all dashboard CSS and HTML helpers (dark theme)
 │   └── mock_data/           # sample data for EVGUARD_MOCK=1
 ├── config/
 │   ├── loader.py
 │   └── policy_rules.yaml
 ├── tests/                   # pytest suite
 ├── docs/                    # specs, real API responses, screenshots/
-├── .streamlit/config.toml   # Streamlit settings (usage stats off)
+├── .streamlit/config.toml   # Streamlit settings and dark theme
 ├── requirements.txt
 └── README.md
 ```

@@ -141,13 +141,28 @@ def _md(at):
     return "\n".join(e.value for e in at.markdown)
 
 
+def _plain(at):
+    """Visible text of every markdown element: no <style> block, no tags, entities decoded."""
+    import html
+    import re
+
+    text = "\n".join(e.value for e in at.markdown)
+    text = re.sub(r"<style>.*?</style>", "", text, flags=re.S)
+    return html.unescape(re.sub(r"<[^>]+>", "", text))
+
+
+def _html_with(at, marker):
+    """The markdown element whose raw HTML contains `marker` (the CSS block never does)."""
+    return next(e.value for e in at.markdown if marker in e.value and "<style>" not in e.value)
+
+
 def _click(at, key):
     next(b for b in at.button if b.key == key).click().run()
 
 
 def test_intro_panels_and_scenario_groups(live):
     assert not live.exception
-    text = _md(live)
+    text = _plain(live)
     assert "What is EVGuard?" in text
     assert "Authentication" in text and "Rate limit" in text and "ALLOW / BLOCK" in text
     assert "How to use this dashboard" in text
@@ -160,9 +175,10 @@ def test_intro_panels_and_scenario_groups(live):
 
 
 def test_cards_show_expectation_and_description(live):
-    captions = [c.value for c in live.caption]
-    assert "Expected: **ALLOW**" in captions
-    assert "Expected: **BLOCK (policy.power_limit)**" in captions
+    text = _plain(live)
+    assert "Expected: ALLOW" in text
+    assert "Expected: BLOCK (policy.power_limit)" in text
+    assert 'class="badge badge-allow"' in _md(live) and 'class="badge badge-block"' in _md(live)
     assert "Valid controller asks for 20 kW on a 7 kW session." in [m.value for m in live.markdown]
 
 
@@ -172,10 +188,11 @@ def test_run_shows_what_just_happened(live):
     assert "What just happened" in _md(live)
     assert any(s.value == "Scenario matched expectations" for s in live.success)
 
-    rows = live.dataframe[0].value
-    assert list(rows["Step"]) == [1, 2, 3, 4]
-    assert rows["Rule"].iloc[3] == "policy.power_limit"
-    assert rows["Result"].eq("✅ as expected").all()
+    table = _html_with(live, '<table class="evtable">')
+    assert table.count("<tr>") == 1 + 4                        # header + 4 steps
+    assert 'class="pill pill-block">⛔ BLOCK</span>' in table   # coloured pill with icon and word
+    assert "<code>policy.power_limit</code>" in table
+    assert table.count("as expected") == 4 and "mismatch" not in table
 
     conclusion = next(i.value for i in live.info if "blocked" in i.value)
     assert "SET_POWER 20 kW (rule policy.power_limit)" in conclusion
@@ -198,9 +215,11 @@ def test_reset_demo_clears_the_run(live):
 def test_baseline_vs_evguard_card(live):
     _click(live, "run_comparison")
     assert not live.exception
-    assert any("Without EVGuard" in e.value and "20 kW" in e.value for e in live.error)
-    assert any("BLOCKED" in s.value and "policy.power_limit" in s.value and "5 kW" in s.value
-               for s in live.success)
+    bad = _html_with(live, "cmp-card cmp-bad")
+    good = _html_with(live, "cmp-card cmp-good")
+    assert "Without EVGuard" in bad and "20 kW" in bad
+    assert "BLOCKED" in good and "policy.power_limit" in good and "5 kW" in good
+    assert "stays at" in good
     assert "simulated unprotected controller, not a real charger" in "\n".join(
         c.value for c in live.caption)
 
@@ -278,5 +297,25 @@ def test_decision_card_and_session_panel_name_their_session(live):
     assert any("Showing session: `sess_demo` (default demo session)" in x for x in texts())
 
     _click(live, "scenario_excess_power")
-    assert "**Session:** `sess_excess_power`" in [m.value for m in live.markdown]
+    assert "Session: sess_excess_power" in _html_with(live, "decision-hero")
     assert any("Showing session: `sess_excess_power` (from your last scenario run)" in x for x in texts())
+
+
+def test_api_text_is_escaped_in_injected_html(live, monkeypatch):
+    """Reasons, rules and IDs come from the API; none of it may reach the page as raw HTML."""
+    import api_client
+
+    evil = "<script>alert(1)</script><img src=x onerror=alert(2)>"
+    item = {"command_id": "cmd_x", "session_id": "sess_<b>x</b>", "source_id": "controller_A",
+            "command_type": "SET_POWER", "value": 20.0, "unit": "kW", "decision": "BLOCK",
+            "rule_triggered": "<i>rule</i>", "reason": evil, "state_before": "CHARGING",
+            "state_after": "CHARGING", "received_at": "2026-09-20T10:00:00Z"}
+    monkeypatch.setattr(api_client, "get_decisions", lambda limit=50: {"items": [item]})
+    live.run()
+    assert not live.exception
+
+    page_html = "\n".join(e.value for e in live.markdown if "<style>" not in e.value)
+    for raw in ("<script", "<img", "<i>rule", "<b>x</b>"):
+        assert raw not in page_html, raw
+    assert "&lt;script&gt;" in _html_with(live, "decision-hero")            # decision card
+    assert "&lt;script&gt;" in _html_with(live, '<table class="evtable">')  # audit table

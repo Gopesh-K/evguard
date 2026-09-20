@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import streamlit as st
 
 import api_client
+import styles
 
 
 # ============================================================
@@ -25,51 +26,8 @@ st.set_page_config(
 # CUSTOM STYLING
 # ============================================================
 
-st.markdown(
-    """
-    <style>
-        .main-title {
-            font-size: 2.5rem;
-            font-weight: 750;
-            margin-bottom: 0.1rem;
-        }
-
-        .subtitle {
-            color: #8b949e;
-            font-size: 1rem;
-            margin-bottom: 1.5rem;
-        }
-
-        .decision-card {
-            padding: 1.2rem;
-            border-radius: 12px;
-            margin-bottom: 1rem;
-        }
-
-        .block-card {
-            background: rgba(255, 70, 70, 0.12);
-            border: 1px solid rgba(255, 70, 70, 0.35);
-        }
-
-        .allow-card {
-            background: rgba(40, 200, 120, 0.12);
-            border: 1px solid rgba(40, 200, 120, 0.35);
-        }
-
-        .decision-title {
-            font-size: 1.5rem;
-            font-weight: 700;
-        }
-
-        .section-title {
-            font-size: 1.35rem;
-            font-weight: 650;
-            margin-top: 0.7rem;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# All CSS lives in dashboard/styles.py; it is injected here, once.
+st.markdown(styles.CSS, unsafe_allow_html=True)
 
 
 # ============================================================
@@ -333,10 +291,13 @@ def render_scenario_card(scenario):
     title = scenario.get("title") or name
     description = scenario.get("description") or FALLBACK_DESCRIPTIONS.get(name, "")
 
-    with st.container(border=True):
+    with st.container(key=f"card_{name}"):
         st.markdown(f"**{title}**")
         st.write(description)
-        st.caption(f"Expected: **{EXPECTED.get(name, 'see the result')}**")
+        st.markdown(
+            styles.expected_badge(EXPECTED.get(name, "see the result")),
+            unsafe_allow_html=True,
+        )
 
         if st.button("▶ Run", key=f"scenario_{name}", **STRETCH):
             run_and_store(name, title)
@@ -373,56 +334,26 @@ scenarios_data = api_client.list_scenarios()
 # HEADER
 # ============================================================
 
-st.markdown(
-    '<div class="main-title">'
-    "🔐 EVGuard — Charging Security Dashboard"
-    "</div>",
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    '<div class="subtitle">'
-    "EV charging command security gateway | "
-    "Decision monitoring, session health and audit trail"
-    "</div>",
-    unsafe_allow_html=True,
-)
-
 
 # ============================================================
 # SYSTEM STATUS
 # ============================================================
 
-status_col1, status_col2, status_col3 = st.columns(3)
+gateway_online = bool(health and health.get("status") == "ok")
+contract_version = health.get("contract_version", "unknown") if health else "unknown"
 
-
-with status_col1:
-    if health and health.get("status") == "ok":
-        st.success("🟢 EVGuard Gateway Online")
-    else:
-        st.error("🔴 EVGuard Gateway Offline")
-
-
-with status_col2:
-    contract_version = (
-        health.get("contract_version", "unknown")
-        if health
-        else "unknown"
-    )
-
-    st.info(
-        f"Contract Version: **{contract_version}**"
-    )
-
-
-with status_col3:
-    if api_client.MOCK_MODE:
-        st.info("Mode: **MOCK**")
-    else:
-        st.info("Mode: **LIVE**")
-
-
-st.divider()
+st.markdown(
+    styles.hero(
+        [
+            styles.pill("Gateway Online", "allow", "🟢")
+            if gateway_online
+            else styles.pill("Gateway Offline", "block", "🔴"),
+            styles.pill(f"Contract v{contract_version}", "info"),
+            styles.pill(MODE_LABEL, "warn" if api_client.MOCK_MODE else "info"),
+        ]
+    ),
+    unsafe_allow_html=True,
+)
 
 
 # ============================================================
@@ -482,7 +413,7 @@ if stats is None:
 # WHAT IS EVGUARD / HOW TO USE
 # ============================================================
 
-with st.container(border=True):
+with st.container(key="panel_what"):
     st.markdown(
         '<div class="section-title">What is EVGuard?</div>',
         unsafe_allow_html=True,
@@ -495,24 +426,25 @@ with st.container(border=True):
         "decision is explained and kept in an audit trail."
     )
 
-    st.markdown(
-        "**Authentication** → **Authorization** → **Session state** → "
-        "**Safety limits** → **Rate limit** → **ALLOW / BLOCK**"
-    )
+    st.markdown(styles.pipeline(), unsafe_allow_html=True)
 
 
-with st.container(border=True):
+with st.container(key="panel_how"):
     st.markdown(
         '<div class="section-title">How to use this dashboard</div>',
         unsafe_allow_html=True,
     )
 
-    st.markdown(
-        "1. **Run the Normal charging session** below and watch every command get ALLOWED.\n"
-        "2. **Run an attack**, for example the *Excess power attack*.\n"
-        "3. **Watch the decision card and the charger's power** to see the attack stopped.\n"
-        "4. **Check the audit trail** at the bottom of the page for the full record."
-    )
+    how_steps = [
+        "<b>Run the Normal charging session</b> below and watch every command get ALLOWED.",
+        "<b>Run an attack</b>, for example the <i>Excess power attack</i>.",
+        "<b>Watch the decision card and the charger's power</b> to see the attack stopped.",
+        "<b>Check the audit trail</b> at the bottom of the page for the full record.",
+    ]
+
+    for number_, column, body in zip(range(1, 5), st.columns(4), how_steps):
+        with column:
+            st.markdown(styles.step_card(number_, body), unsafe_allow_html=True)
 
 
 # ============================================================
@@ -580,7 +512,7 @@ if scenario_name and not scenario_result:
 
 if scenario_result:
 
-    with st.container(border=True):
+    with st.container(key="panel_happened"):
         st.markdown(
             '<div class="section-title">What just happened</div>',
             unsafe_allow_html=True,
@@ -599,12 +531,21 @@ if scenario_result:
             None,
         )
 
-        if scenario_result.get("passed") and mismatch_step is None:
-            st.success("✔ Scenario matched expectations")
-        elif mismatch_step is not None:
-            st.error(f"✘ Mismatch at step {mismatch_step}")
-        else:
-            st.error("✘ Scenario did not match expectations")
+        with st.container(key="result_banner"):
+            if scenario_result.get("passed") and mismatch_step is None:
+                st.success("✔ Scenario matched expectations")
+            elif mismatch_step is not None:
+                st.error(f"✘ Mismatch at step {mismatch_step}")
+            else:
+                st.error("✘ Scenario did not match expectations")
+
+        with st.container(key="conclusion"):
+            st.info(
+                conclusion(
+                    scenario_result,
+                    None if session_fallback else session,
+                )
+            )
 
         rows = []
 
@@ -613,41 +554,42 @@ if scenario_result:
             step_value = decision_data.get("value")
 
             rows.append(
-                {
-                    "Step": step_result.get("step", "—"),
-                    "Command": show(decision_data.get("command_type")),
-                    "Value": (
+                [
+                    styles.esc(step_result.get("step")),
+                    styles.esc(decision_data.get("command_type")),
+                    styles.esc(
                         f"{step_value:g} {decision_data.get('unit') or ''}".strip()
                         if isinstance(step_value, (int, float))
-                        else "—"
+                        else None
                     ),
-                    "Decision": (
-                        f"{decision_icon(decision_data.get('decision'))} "
-                        f"{show(decision_data.get('decision'))}"
-                    ),
-                    "Rule": show(decision_data.get("rule_triggered")),
-                    "Reason": show(decision_data.get("reason")),
-                    "Expected": (
-                        f"{show(step_result.get('expect'))} "
-                        f"({show(step_result.get('expect_rule'))})"
-                    ),
-                    "Result": (
-                        "✅ as expected"
-                        if step_result.get("passed")
-                        else "❌ mismatch"
-                    ),
-                }
+                    styles.decision_pill(decision_data.get("decision")),
+                    styles.code(decision_data.get("rule_triggered")),
+                    styles.esc(decision_data.get("reason")),
+                    f"{styles.esc(step_result.get('expect'))} "
+                    f"({styles.esc(step_result.get('expect_rule'))})",
+                    styles.pill("as expected", "allow", "✅")
+                    if step_result.get("passed")
+                    else styles.pill("mismatch", "block", "❌"),
+                ]
             )
 
         if rows:
-            st.dataframe(rows, hide_index=True, **STRETCH)
-
-        st.info(
-            conclusion(
-                scenario_result,
-                None if session_fallback else session,
+            st.markdown(
+                styles.table(
+                    [
+                        "Step",
+                        "Command",
+                        "Value",
+                        "Decision",
+                        "Rule",
+                        "Reason",
+                        "Expected",
+                        "Result",
+                    ],
+                    rows,
+                ),
+                unsafe_allow_html=True,
             )
-        )
 
         with st.expander("Technical details (raw JSON)"):
             st.json(scenario_result)
@@ -657,7 +599,7 @@ if scenario_result:
 # BASELINE VS EVGUARD
 # ============================================================
 
-with st.container(border=True):
+with st.container(key="panel_compare"):
     st.markdown(
         '<div class="section-title">Baseline vs EVGuard</div>',
         unsafe_allow_html=True,
@@ -698,9 +640,15 @@ with st.container(border=True):
         without_col, with_col = st.columns(2)
 
         with without_col:
-            st.error(
-                "**Without EVGuard**  \n"
-                f"Charger set to **{number(comparison.get('baseline_power_kw'))} kW**"
+            st.markdown(
+                styles.compare_card(
+                    "bad",
+                    "🚫 Without EVGuard",
+                    f"{number(comparison.get('baseline_power_kw'))} kW",
+                    "The unprotected controller obeyed the command: "
+                    "charger set to this power.",
+                ),
+                unsafe_allow_html=True,
             )
 
         with with_col:
@@ -710,17 +658,25 @@ with st.container(border=True):
             )
 
             if comparison.get("decision") == "BLOCK":
-                st.success(
-                    "**With EVGuard**  \n"
-                    f"**BLOCKED** ({show(comparison.get('rule'))}), charger "
-                    f"{'stays at' if unchanged else 'is now at'} "
-                    f"**{number(comparison.get('evguard_power_kw'))} kW**"
+                st.markdown(
+                    styles.compare_card(
+                        "good",
+                        "🛡️ With EVGuard: ⛔ BLOCKED",
+                        f"{number(comparison.get('evguard_power_kw'))} kW",
+                        f"Rule {styles.code(comparison.get('rule'))}: the charger "
+                        f"{'stays at' if unchanged else 'is now at'} this power.",
+                    ),
+                    unsafe_allow_html=True,
                 )
             else:
-                st.warning(
-                    "**With EVGuard**  \n"
-                    f"Decision: {show(comparison.get('decision'))}, charger at "
-                    f"{number(comparison.get('evguard_power_kw'))} kW"
+                st.markdown(
+                    styles.compare_card(
+                        "warn",
+                        f"🛡️ With EVGuard: {styles.esc(comparison.get('decision'))}",
+                        f"{number(comparison.get('evguard_power_kw'))} kW",
+                        "The command was not blocked; this is the charger's power now.",
+                    ),
+                    unsafe_allow_html=True,
                 )
 
 
@@ -842,24 +798,11 @@ if decisions:
         "unknown",
     )
 
-    if decision == "ALLOW":
-        card_class = "allow-card"
-    else:
-        card_class = "block-card"
-
     st.markdown(
-        f"""
-        <div class="decision-card {card_class}">
-            <div class="decision-title">
-                {decision_icon(decision)} {decision}
-            </div>
-        </div>
-        """,
+        styles.decision_hero(decision, reason, session_id),
         unsafe_allow_html=True,
     )
 
-
-    st.markdown(f"**Session:** `{session_id}`")
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -894,16 +837,6 @@ if decisions:
         st.metric(
             "Source",
             source_id,
-        )
-
-
-    if decision == "BLOCK":
-        st.error(
-            f"**Block reason:** {reason}"
-        )
-    else:
-        st.success(
-            f"**Decision reason:** {reason}"
         )
 
 
@@ -959,40 +892,30 @@ if session:
 
     with session_col1:
 
-        st.write(
-            f"**Session:** "
-            f"`{show(session.get('session_id'))}`"
-        )
-
-        st.write(
-            f"**Vehicle:** "
-            f"`{show(session.get('vehicle_id'))}`"
-        )
-
         state = show(session.get("state"))
 
-        if state == "CHARGING":
-            st.success(
-                f"⚡ State: **{state}**"
-            )
-        elif state == "STOPPED":
-            st.warning(
-                f"⏹️ State: **{state}**"
-            )
-        else:
-            st.info(
-                f"State: **{state}**"
-            )
-
-        st.write(
-            f"**Maximum Power:** "
-            f"{show(session.get('max_power_kw'))} kW"
+        st.markdown(
+            '<div class="pills">'
+            + styles.pill("Session: " + str(show(session.get("session_id"))), "info")
+            + styles.pill("Vehicle: " + str(show(session.get("vehicle_id"))), "neutral")
+            + styles.state_pill(state)
+            + "</div>",
+            unsafe_allow_html=True,
         )
 
-        st.write(
-            f"**Maximum Current:** "
-            f"{show(session.get('max_current_a'))} A"
-        )
+        limit1, limit2 = st.columns(2)
+
+        with limit1:
+            st.metric(
+                "Maximum Power",
+                f"{show(session.get('max_power_kw'))} kW",
+            )
+
+        with limit2:
+            st.metric(
+                "Maximum Current",
+                f"{show(session.get('max_current_a'))} A",
+            )
 
 
     with session_col2:
@@ -1035,6 +958,21 @@ if session:
                 "Current",
                 f"{show(physical.get('current_a'))} A",
             )
+
+
+        for label, used, limit, unit_label in (
+            ("Power", physical.get("power_kw"), session.get("max_power_kw"), "kW"),
+            ("Current", physical.get("current_a"), session.get("max_current_a"), "A"),
+        ):
+            if (
+                isinstance(used, (int, float))
+                and isinstance(limit, (int, float))
+                and limit > 0
+            ):
+                st.progress(
+                    min(max(used / limit, 0.0), 1.0),
+                    text=f"{label}: {number(used)} of {number(limit)} {unit_label}",
+                )
 
 
         st.caption(
@@ -1209,10 +1147,22 @@ for item in filtered_decisions:
 
 if audit_rows:
 
-    st.dataframe(
-        audit_rows,
-        **STRETCH,
-        hide_index=True,
+    st.markdown(
+        styles.table(
+            ["Time", "Command", "Value", "Decision", "Rule", "Reason"],
+            [
+                [
+                    styles.esc(row["Time"]),
+                    styles.esc(row["Command"]),
+                    styles.esc(row["Value"]),
+                    styles.decision_pill(row["Decision"]),
+                    styles.code(row["Rule"]),
+                    styles.esc(row["Reason"]),
+                ]
+                for row in audit_rows
+            ],
+        ),
+        unsafe_allow_html=True,
     )
 
 
