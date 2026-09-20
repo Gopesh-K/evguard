@@ -100,7 +100,7 @@ class RateTracker:
 - Record a command after auth passes.
 - The Gateway calls it after auth, but reports its result only if the state and policy checks passed.
 
-To keep the check order (the first failing check wins): record and check the rate right after auth, store the result, then return a rate BLOCK only if state and policy pass. Write a test for the `rate_burst` expectations: steps 1–5 ALLOW, 6–10 BLOCK.
+To keep the check order (the first failing check wins): record and check the rate right after auth, store the result, then return a rate BLOCK only if state and policy pass. Write a test for the `rate_burst` expectations: 3 setup commands + 12 × SET_POWER 5 kW, steps 1–10 ALLOW, 11–15 BLOCK.
 
 Duplicate IDs: keep a `set` of processed `command_id`s. A repeat → `sequence.duplicate_command_id`, checked right after input validation.
 

@@ -1,6 +1,7 @@
 """Smoke tests for EVGuard FastAPI endpoints."""
 
 import itertools
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -115,3 +116,82 @@ def test_scenarios_stubs(client):
 def test_baseline_stays_501(client):
     response = client.post("/baseline/command", json=payload("CONNECT"))
     assert response.status_code == 501
+
+
+# ---- input validation: what the temporary schema rejects (422) vs defers (200 BLOCK) ----
+
+@pytest.mark.parametrize("command_type, value, unit", [
+    ("SET_POWER", "5", "kW"),        # numeric string is not coerced
+    ("SET_POWER", True, "kW"),       # boolean is not a number
+    ("SET_CURRENT", "16", "A"),
+    ("CONNECT", "5", None),          # type errors are command-agnostic
+])
+def test_generic_type_errors_return_422(client, command_type, value, unit):
+    response = client.post("/command", json=payload(command_type, value, unit))
+    assert response.status_code == 422
+    assert client.get("/stats").json()["total"] == 0  # never reached the engine
+
+
+@pytest.mark.parametrize("field, value", [("command_id", 5), ("auth_token", None), ("unit", 5)])
+def test_wrong_string_types_return_422(client, field, value):
+    body = payload("CONNECT")
+    body[field] = value
+    assert client.post("/command", json=body).status_code == 422
+
+
+@pytest.mark.parametrize("changes", [
+    {"command_type": "SET_POWER", "value": None, "unit": None},       # value required
+    {"command_type": "SET_POWER", "value": 5.0, "unit": None},        # unit required
+    {"command_type": "SET_POWER", "value": 5.0, "unit": "A"},         # wrong unit
+    {"command_type": "SET_CURRENT", "value": 16.0, "unit": "kW"},     # wrong unit
+    {"command_type": "CONNECT", "value": 5.0, "unit": "kW"},          # value forbidden
+    {"command_type": "CONNECT", "value": None, "unit": "kW"},         # unit forbidden
+    {"command_type": "SET_POWER", "value": -5.0, "unit": "kW"},       # not greater than 0
+    {"command_type": "SET_POWER", "value": 0, "unit": "kW"},          # not greater than 0
+    {"command_type": "NUKE", "value": None, "unit": None},            # not in COMMANDS
+    {"command_type": "CONNECT", "session_id": "bad id!"},             # ID pattern
+])
+def test_command_specific_cases_are_deferred_200_block_input_invalid(client, changes):
+    """Locks in the documented interim behaviour (CONTRACT section 6). When the final
+    schemas.py lands and these become HTTP 422, update this test and the contract note."""
+    response = client.post("/command", json={**payload("CONNECT"), **changes})
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["decision"], body["rule_triggered"]) == ("BLOCK", "input.invalid")
+    assert list(body) == DECISION_KEYS
+
+
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity"])
+def test_non_finite_value_is_deferred_200_block_input_invalid(client, token):
+    body = json.dumps(payload("SET_POWER", 1.0, "kW")).replace("1.0", token)
+    response = client.post("/command", content=body, headers={"Content-Type": "application/json"})
+    assert response.status_code == 200
+    assert response.json()["rule_triggered"] == "input.invalid"
+
+
+# ---- 422 responses never echo submitted values ----
+
+def test_nan_with_missing_field_returns_422_not_500(client):
+    body = '{"command_id": "cmd_nan_1", "value": NaN}'
+    response = client.post("/command", content=body, headers={"Content-Type": "application/json"})
+    assert response.status_code == 422
+    assert response.json()["detail"]  # errors are still listed
+
+
+def test_422_does_not_echo_auth_token_or_input(client):
+    bad = payload("CONNECT")
+    del bad["session_id"]
+    response = client.post("/command", json=bad)
+    assert response.status_code == 422
+    assert "demo-token-controller-A" not in response.text
+    assert "demo-token" not in response.text
+    for error in response.json()["detail"]:
+        assert set(error) == {"type", "loc", "msg"}
+    assert {"type": "missing", "loc": ["body", "session_id"], "msg": "Field required"} in \
+        response.json()["detail"]
+
+
+def test_422_for_wrong_type_does_not_echo_the_submitted_value(client):
+    response = client.post("/command", json=payload("SET_POWER", "secret-value-123", "kW"))
+    assert response.status_code == 422
+    assert "secret-value-123" not in response.text
