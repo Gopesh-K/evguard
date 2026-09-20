@@ -1,7 +1,7 @@
 {
   "name": "rate_burst",
   "title": "Rate limit exceeded",
-  "description": "Controller attempts to send commands in excess of the 5 commands per 10 second rate limit window.",
+  "description": "Controller attempts to send commands in excess of the 10 commands per 10 second rate limit window.",
   "session": {
     "session_id": "sess_rate_burst",
     "vehicle_id": "Vehicle-01",
@@ -27,6 +27,51 @@
       "source_id": "controller_A",
       "auth_token": "demo-token-controller-A",
       "command_type": "START_CHARGING",
+      "expect": "ALLOW",
+      "expect_rule": "ok"
+    },
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "SET_POWER",
+      "value": 5.0,
+      "unit": "kW",
+      "expect": "ALLOW",
+      "expect_rule": "ok"
+    },
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "SET_POWER",
+      "value": 5.0,
+      "unit": "kW",
+      "expect": "ALLOW",
+      "expect_rule": "ok"
+    },
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "SET_POWER",
+      "value": 5.0,
+      "unit": "kW",
+      "expect": "ALLOW",
+      "expect_rule": "ok"
+    },
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "SET_POWER",
+      "value": 5.0,
+      "unit": "kW",
+      "expect": "ALLOW",
+      "expect_rule": "ok"
+    },
+    {
+      "source_id": "controller_A",
+      "auth_token": "demo-token-controller-A",
+      "command_type": "SET_POWER",
+      "value": 5.0,
+      "unit": "kW",
       "expect": "ALLOW",
       "expect_rule": "ok"
     },
