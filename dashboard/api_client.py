@@ -99,6 +99,18 @@ def get_session(session_id: str) -> dict | None:
     )
 
 
+def create_session(session_def: dict) -> dict | None:
+    """POST /sessions (creates or resets a session)"""
+    if MOCK_MODE:
+        return _load_mock("session.json")
+
+    return _request(
+        "POST",
+        "/sessions",
+        json_data=session_def,
+    )
+
+
 def get_stats() -> dict | None:
     """GET /stats"""
     if MOCK_MODE:

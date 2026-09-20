@@ -1,5 +1,8 @@
 import csv
+import inspect
 import io
+import uuid
+from datetime import datetime, timezone
 
 import streamlit as st
 
@@ -83,6 +86,26 @@ def decision_icon(decision):
     return "⚠️"
 
 
+def show(value):
+    """Display text for a possibly empty value: None and "" become an em dash."""
+    if value is None or value == "":
+        return "—"
+
+    return value
+
+
+def number(value):
+    """Compact number for display (20.0 -> 20); None becomes an em dash."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{value:g}"
+
+    return show(value)
+
+
+MODE_LABEL = "Mock data mode" if api_client.MOCK_MODE else "Live mode"
+GATEWAY_LABEL = "mock data" if api_client.MOCK_MODE else "the EVGuard gateway"
+
+
 def build_csv(rows):
     if not rows:
         return b""
@@ -106,7 +129,226 @@ def build_csv(rows):
     writer.writeheader()
     writer.writerows(rows)
 
-    return output.getvalue().encode("utf-8")
+    return output.getvalue().encode("utf-8-sig")
+
+
+# Streamlit renamed use_container_width to width="stretch"; support both.
+STRETCH = (
+    {"width": "stretch"}
+    if "width" in inspect.signature(st.button).parameters
+    else {"use_container_width": True}
+)
+
+NORMAL_SCENARIOS = ["normal_session", "full_lifecycle"]
+
+ATTACK_SCENARIOS = [
+    "excess_power",
+    "invalid_state",
+    "excess_current",
+    "invalid_token",
+    "unauthorized_role",
+    "rate_burst",
+]
+
+# What each scenario should produce (CONTRACT section 4).
+EXPECTED = {
+    "normal_session": "ALLOW",
+    "full_lifecycle": "ALLOW",
+    "excess_power": "BLOCK (policy.power_limit)",
+    "invalid_state": "BLOCK (state.invalid_transition)",
+    "excess_current": "BLOCK (policy.current_limit)",
+    "invalid_token": "BLOCK (auth.invalid_token)",
+    "unauthorized_role": "BLOCK (authz.command_not_permitted)",
+    "rate_burst": "BLOCK (sequence.rate_exceeded) after 10 commands",
+}
+
+# Used only when the scenario file carries no description.
+FALLBACK_DESCRIPTIONS = {
+    "normal_session": "A valid controller connects, authorizes, starts charging and sets 5 kW.",
+    "full_lifecycle": "A complete charge from plug-in to unplug, all within limits.",
+    "excess_power": "A valid controller asks for 20 kW on a 7 kW session.",
+    "invalid_state": "A controller tries to start charging before connecting.",
+    "excess_current": "A valid controller asks for 40 A on a 32 A session.",
+    "invalid_token": "A controller connects with a forged authentication token.",
+    "unauthorized_role": "A read-only monitor tries to send an active CONNECT.",
+    "rate_burst": "A controller floods the charger with commands.",
+}
+
+DEMO_SESSION_ID = "sess_demo"
+COMPARE_SESSION_ID = "sess_compare"
+COMPARE_BASELINE_SESSION_ID = "sess_compare_baseline"
+DEMO_SOURCE_ID = "controller_A"
+DEMO_TOKEN = "demo-token-controller-A"
+
+STATE_KEYS = ("scenario_result", "scenario_name", "active_session_id", "comparison")
+
+
+def conclusion(result, session_info):
+    """One plain-English sentence, built only from this run's decisions and the
+    session's actual state afterwards. Nothing here is assumed about a scenario.
+    """
+    if not result.get("passed"):
+        return (
+            "At least one step did not behave as expected. "
+            "The table above shows which step differs."
+        )
+
+    decisions = [step.get("decision") or {} for step in result.get("results", [])]
+    blocked = [d for d in decisions if d.get("decision") == "BLOCK"]
+    allowed_count = len(decisions) - len(blocked)
+
+    power = ((session_info or {}).get("physical") or {}).get("power_kw")
+    charger = (
+        f" Charger power after the run: {number(power)} kW."
+        if isinstance(power, (int, float)) and not isinstance(power, bool)
+        else ""
+    )
+
+    if not blocked:
+        return (
+            f"All {len(decisions)} commands were allowed: each one was "
+            f"authenticated, valid for the session state and within limits.{charger}"
+        )
+
+    first = blocked[0]
+    earlier = decisions[:decisions.index(first)]
+    authenticated_before = any(
+        d.get("decision") == "ALLOW" and d.get("source_id") == first.get("source_id")
+        for d in earlier
+    )
+    lead = (
+        "The controller was authenticated (its earlier commands were allowed), "
+        "but EVGuard blocked"
+        if authenticated_before
+        else "EVGuard blocked"
+    )
+
+    value = first.get("value")
+    request = show(first.get("command_type"))
+    if isinstance(value, (int, float)):
+        request = f"{request} {number(value)} {first.get('unit') or ''}".strip()
+
+    reason = str(show(first.get("reason"))).rstrip(".")
+    text = f"{lead} {request} (rule {show(first.get('rule_triggered'))}). {reason}."
+
+    if len(blocked) > 1:
+        text += f" In total {allowed_count} commands were allowed and {len(blocked)} blocked."
+
+    return text + charger
+
+
+def compare_command(session_id, command_type, value=None, unit=None):
+    return {
+        "command_id": f"cmd_cmp_{uuid.uuid4().hex[:12]}",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "session_id": session_id,
+        "source_id": DEMO_SOURCE_ID,
+        "auth_token": DEMO_TOKEN,
+        "command_type": command_type,
+        "value": value,
+        "unit": unit,
+    }
+
+
+def run_comparison():
+    """Send the same 20 kW command to EVGuard and to the unprotected baseline.
+
+    Both first reach a safe 5 kW. Returns None if any call fails.
+    """
+    setup = [
+        ("CONNECT", None, None),
+        ("AUTHORIZE_SESSION", None, None),
+        ("START_CHARGING", None, None),
+        ("SET_POWER", 5.0, "kW"),
+    ]
+    attack = ("SET_POWER", 20.0, "kW")
+
+    if api_client.create_session(
+        {"session_id": COMPARE_SESSION_ID, "vehicle_id": "Vehicle-01"}
+    ) is None:
+        return None
+
+    for step in setup:
+        if api_client.send_command(compare_command(COMPARE_SESSION_ID, *step)) is None:
+            return None
+
+    before_session = api_client.get_session(COMPARE_SESSION_ID)
+    guarded = api_client.send_command(compare_command(COMPARE_SESSION_ID, *attack))
+    guarded_session = api_client.get_session(COMPARE_SESSION_ID)
+
+    baseline = None
+    for step in setup + [attack]:
+        baseline = api_client.baseline_command(
+            compare_command(COMPARE_BASELINE_SESSION_ID, *step)
+        )
+        if baseline is None:
+            return None
+
+    if guarded is None or guarded_session is None or before_session is None:
+        return None
+
+    return {
+        "decision": guarded.get("decision"),
+        "rule": guarded.get("rule_triggered"),
+        "evguard_power_before_kw": (before_session.get("physical") or {}).get("power_kw"),
+        "evguard_power_kw": (guarded_session.get("physical") or {}).get("power_kw"),
+        "baseline_power_kw": (baseline.get("snapshot") or {}).get("power_kw"),
+    }
+
+
+def run_and_store(name, title):
+    """Run one scenario, remember its result and session, then redraw the page."""
+    with st.spinner(f"Running {title}..."):
+        result = api_client.run_scenario(name)
+
+    st.session_state["scenario_result"] = result
+    st.session_state["scenario_name"] = name
+
+    if result and result.get("session_id"):
+        st.session_state["active_session_id"] = result["session_id"]
+
+    # Rerun so the session panel and metrics below show the new state.
+    st.rerun()
+
+
+def reset_demo():
+    """Re-create sess_demo and clear everything the page remembers about a run."""
+    reset = api_client.create_session(
+        {"session_id": DEMO_SESSION_ID, "vehicle_id": "Vehicle-01"}
+    )
+
+    for key in STATE_KEYS:
+        st.session_state.pop(key, None)
+
+    st.session_state["notice"] = (
+        "Demo reset: sess_demo is back to DISCONNECTED."
+        if reset is not None
+        else "Could not reset the demo session. Is the backend running?"
+    )
+    st.rerun()
+
+
+def render_scenario_card(scenario):
+    name = scenario.get("name", "")
+    title = scenario.get("title") or name
+    description = scenario.get("description") or FALLBACK_DESCRIPTIONS.get(name, "")
+
+    with st.container(border=True):
+        st.markdown(f"**{title}**")
+        st.write(description)
+        st.caption(f"Expected: **{EXPECTED.get(name, 'see the result')}**")
+
+        if st.button("▶ Run", key=f"scenario_{name}", **STRETCH):
+            run_and_store(name, title)
+
+
+def render_scenario_row(scenarios):
+    for start in range(0, len(scenarios), 3):
+        columns = st.columns(3)
+
+        for column, scenario in zip(columns, scenarios[start:start + 3]):
+            with column:
+                render_scenario_card(scenario)
 
 
 # ============================================================
@@ -115,31 +357,16 @@ def build_csv(rows):
 
 health = api_client.health()
 stats = api_client.get_stats()
-session = api_client.get_session("sess_demo")
+active_session_id = st.session_state.get("active_session_id", DEMO_SESSION_ID)
+session = api_client.get_session(active_session_id)
+session_fallback = False
+
+if session is None and active_session_id != DEMO_SESSION_ID:
+    session = api_client.get_session(DEMO_SESSION_ID)
+    session_fallback = True
+
 decisions_data = api_client.get_decisions(limit=50)
 scenarios_data = api_client.list_scenarios()
-
-
-if decisions_data is None:
-    st.error("Unable to load EVGuard decisions.")
-    st.stop()
-
-
-decisions = decisions_data.get("items", [])
-
-
-if stats is None:
-    stats = {
-        "total": len(decisions),
-        "allowed": sum(
-            item.get("decision") == "ALLOW"
-            for item in decisions
-        ),
-        "blocked": sum(
-            item.get("decision") == "BLOCK"
-            for item in decisions
-        ),
-    }
 
 
 # ============================================================
@@ -193,6 +420,308 @@ with status_col3:
         st.info("Mode: **MOCK**")
     else:
         st.info("Mode: **LIVE**")
+
+
+st.divider()
+
+
+# ============================================================
+# BACKEND AVAILABILITY
+# ============================================================
+
+if not api_client.MOCK_MODE and health is None:
+    st.error("**The EVGuard backend isn't running.**")
+
+    st.markdown(
+        "Start everything with one command from the repository folder:"
+    )
+
+    st.code(
+        "./run.ps1      # Windows PowerShell\n"
+        "./run.sh       # macOS / Linux",
+        language="bash",
+    )
+
+    st.markdown("Or start only the backend yourself:")
+
+    st.code(
+        "python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000",
+        language="bash",
+    )
+
+    st.caption(
+        "Then reload this page. No backend? Run the no-browser demo "
+        "with `python demo.py`."
+    )
+    st.stop()
+
+
+if decisions_data is None:
+    st.error("Unable to load EVGuard decisions.")
+    st.stop()
+
+
+decisions = decisions_data.get("items", [])
+
+
+if stats is None:
+    stats = {
+        "total": len(decisions),
+        "allowed": sum(
+            item.get("decision") == "ALLOW"
+            for item in decisions
+        ),
+        "blocked": sum(
+            item.get("decision") == "BLOCK"
+            for item in decisions
+        ),
+    }
+
+
+# ============================================================
+# WHAT IS EVGUARD / HOW TO USE
+# ============================================================
+
+with st.container(border=True):
+    st.markdown(
+        '<div class="section-title">What is EVGuard?</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.write(
+        "Every EV charging command passes through EVGuard before it reaches "
+        "the charger. Even a correctly authenticated command is **BLOCKED** if "
+        "it is unsafe or invalid for the charger's current state. Every "
+        "decision is explained and kept in an audit trail."
+    )
+
+    st.markdown(
+        "**Authentication** → **Authorization** → **Session state** → "
+        "**Safety limits** → **Rate limit** → **ALLOW / BLOCK**"
+    )
+
+
+with st.container(border=True):
+    st.markdown(
+        '<div class="section-title">How to use this dashboard</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        "1. **Run the Normal charging session** below and watch every command get ALLOWED.\n"
+        "2. **Run an attack**, for example the *Excess power attack*.\n"
+        "3. **Watch the decision card and the charger's power** to see the attack stopped.\n"
+        "4. **Check the audit trail** at the bottom of the page for the full record."
+    )
+
+
+# ============================================================
+# SCENARIO CARDS
+# ============================================================
+
+title_col, reset_col = st.columns([4, 1])
+
+with title_col:
+    st.markdown(
+        '<div class="section-title">Try a scenario</div>',
+        unsafe_allow_html=True,
+    )
+
+with reset_col:
+    if st.button("🔄 Reset demo", key="reset_demo", **STRETCH):
+        reset_demo()
+
+
+notice = st.session_state.pop("notice", None)
+
+if notice:
+    st.info(notice)
+
+st.caption(
+    f"Each card runs a controlled scenario against {GATEWAY_LABEL}."
+)
+
+
+scenarios = (scenarios_data or {}).get("items", [])
+by_name = {item.get("name"): item for item in scenarios}
+
+normal_cards = [by_name[n] for n in NORMAL_SCENARIOS if n in by_name]
+attack_cards = [by_name[n] for n in ATTACK_SCENARIOS if n in by_name]
+attack_cards += [
+    item
+    for item in scenarios
+    if item.get("name") not in NORMAL_SCENARIOS + ATTACK_SCENARIOS
+]
+
+
+if scenarios:
+    st.markdown("#### ✅ Normal operation")
+    render_scenario_row(normal_cards)
+
+    st.markdown("#### ⚠️ Attacks")
+    render_scenario_row(attack_cards)
+else:
+    st.info("No scenarios available.")
+
+
+# ============================================================
+# WHAT JUST HAPPENED
+# ============================================================
+
+scenario_result = st.session_state.get("scenario_result")
+scenario_name = st.session_state.get("scenario_name")
+
+
+if scenario_name and not scenario_result:
+    st.error(
+        f"✘ Scenario `{scenario_name}` could not be run."
+    )
+
+
+if scenario_result:
+
+    with st.container(border=True):
+        st.markdown(
+            '<div class="section-title">What just happened</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.write(f"**Scenario:** `{scenario_name}`")
+
+        results = scenario_result.get("results", [])
+
+        mismatch_step = next(
+            (
+                step_result.get("step", "—")
+                for step_result in results
+                if not step_result.get("passed", False)
+            ),
+            None,
+        )
+
+        if scenario_result.get("passed") and mismatch_step is None:
+            st.success("✔ Scenario matched expectations")
+        elif mismatch_step is not None:
+            st.error(f"✘ Mismatch at step {mismatch_step}")
+        else:
+            st.error("✘ Scenario did not match expectations")
+
+        rows = []
+
+        for step_result in results:
+            decision_data = step_result.get("decision") or {}
+            step_value = decision_data.get("value")
+
+            rows.append(
+                {
+                    "Step": step_result.get("step", "—"),
+                    "Command": show(decision_data.get("command_type")),
+                    "Value": (
+                        f"{step_value:g} {decision_data.get('unit') or ''}".strip()
+                        if isinstance(step_value, (int, float))
+                        else "—"
+                    ),
+                    "Decision": (
+                        f"{decision_icon(decision_data.get('decision'))} "
+                        f"{show(decision_data.get('decision'))}"
+                    ),
+                    "Rule": show(decision_data.get("rule_triggered")),
+                    "Reason": show(decision_data.get("reason")),
+                    "Expected": (
+                        f"{show(step_result.get('expect'))} "
+                        f"({show(step_result.get('expect_rule'))})"
+                    ),
+                    "Result": (
+                        "✅ as expected"
+                        if step_result.get("passed")
+                        else "❌ mismatch"
+                    ),
+                }
+            )
+
+        if rows:
+            st.dataframe(rows, hide_index=True, **STRETCH)
+
+        st.info(
+            conclusion(
+                scenario_result,
+                None if session_fallback else session,
+            )
+        )
+
+        with st.expander("Technical details (raw JSON)"):
+            st.json(scenario_result)
+
+
+# ============================================================
+# BASELINE VS EVGUARD
+# ============================================================
+
+with st.container(border=True):
+    st.markdown(
+        '<div class="section-title">Baseline vs EVGuard</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.write(
+        "Send the same 20 kW command to an unprotected controller and to "
+        "EVGuard, on a session that is limited to 7 kW and already charging at 5 kW."
+    )
+
+    st.caption(
+        "The baseline is a simulated unprotected controller, not a real charger."
+    )
+
+    if api_client.MOCK_MODE:
+        st.info(
+            "This comparison needs the live backend. Start it with "
+            "`./run.ps1` or `./run.sh`."
+        )
+
+    if st.button(
+        "⚡ Send 20 kW to both",
+        key="run_comparison",
+        disabled=api_client.MOCK_MODE,
+    ):
+        with st.spinner("Sending the same command to both..."):
+            comparison_result = run_comparison()
+
+        if comparison_result is None:
+            st.session_state.pop("comparison", None)
+            st.error("The comparison could not run. Is the backend running?")
+        else:
+            st.session_state["comparison"] = comparison_result
+
+    comparison = st.session_state.get("comparison")
+
+    if comparison:
+        without_col, with_col = st.columns(2)
+
+        with without_col:
+            st.error(
+                "**Without EVGuard**  \n"
+                f"Charger set to **{number(comparison.get('baseline_power_kw'))} kW**"
+            )
+
+        with with_col:
+            unchanged = (
+                comparison.get("evguard_power_kw")
+                == comparison.get("evguard_power_before_kw")
+            )
+
+            if comparison.get("decision") == "BLOCK":
+                st.success(
+                    "**With EVGuard**  \n"
+                    f"**BLOCKED** ({show(comparison.get('rule'))}), charger "
+                    f"{'stays at' if unchanged else 'is now at'} "
+                    f"**{number(comparison.get('evguard_power_kw'))} kW**"
+                )
+            else:
+                st.warning(
+                    "**With EVGuard**  \n"
+                    f"Decision: {show(comparison.get('decision'))}, charger at "
+                    f"{number(comparison.get('evguard_power_kw'))} kW"
+                )
 
 
 st.divider()
@@ -330,6 +859,8 @@ if decisions:
     )
 
 
+    st.markdown(f"**Session:** `{session_id}`")
+
     col1, col2, col3, col4 = st.columns(4)
 
 
@@ -376,12 +907,15 @@ if decisions:
         )
 
 
-    st.caption(
-        f"Rule triggered: `{rule}` | "
-        f"Command ID: `{command_id}` | "
-        f"Session: `{session_id}` | "
-        f"Received: `{received_at}`"
-    )
+    with st.expander("Technical details"):
+        st.caption(
+            f"Rule triggered: `{rule}` | "
+            f"Command ID: `{command_id}` | "
+            f"Session: `{session_id}` | "
+            f"Received: `{received_at}`"
+        )
+
+        st.json(latest)
 
 else:
     st.warning(
@@ -406,6 +940,20 @@ st.markdown(
 
 if session:
 
+    if session_fallback:
+        st.caption(
+            f"Session `{active_session_id}` is unavailable; "
+            f"showing `{DEMO_SESSION_ID}`."
+        )
+
+    if not session_fallback:
+        origin = (
+            "from your last scenario run"
+            if "active_session_id" in st.session_state
+            else "default demo session"
+        )
+        st.caption(f"Showing session: `{show(session.get('session_id'))}` ({origin})")
+
     session_col1, session_col2 = st.columns(2)
 
 
@@ -413,18 +961,15 @@ if session:
 
         st.write(
             f"**Session:** "
-            f"`{session.get('session_id', '—')}`"
+            f"`{show(session.get('session_id'))}`"
         )
 
         st.write(
             f"**Vehicle:** "
-            f"`{session.get('vehicle_id', '—')}`"
+            f"`{show(session.get('vehicle_id'))}`"
         )
 
-        state = session.get(
-            "state",
-            "UNKNOWN",
-        )
+        state = show(session.get("state"))
 
         if state == "CHARGING":
             st.success(
@@ -441,21 +986,18 @@ if session:
 
         st.write(
             f"**Maximum Power:** "
-            f"{session.get('max_power_kw', '—')} kW"
+            f"{show(session.get('max_power_kw'))} kW"
         )
 
         st.write(
             f"**Maximum Current:** "
-            f"{session.get('max_current_a', '—')} A"
+            f"{show(session.get('max_current_a'))} A"
         )
 
 
     with session_col2:
 
-        physical = session.get(
-            "physical",
-            {},
-        )
+        physical = session.get("physical") or {}
 
         p1, p2 = st.columns(2)
 
@@ -484,202 +1026,28 @@ if session:
         with p3:
             st.metric(
                 "Current Power",
-                f"{physical.get('power_kw', 0)} kW",
+                f"{show(physical.get('power_kw'))} kW",
             )
 
 
         with p4:
             st.metric(
                 "Current",
-                f"{physical.get('current_a', 0)} A",
+                f"{show(physical.get('current_a'))} A",
             )
 
 
         st.caption(
             f"Last command: "
-            f"`{physical.get('last_command', '—')}`"
+            f"`{show(physical.get('last_command'))}`"
         )
+
+    with st.expander("Technical details"):
+        st.json(session)
 
 else:
     st.warning(
         "Session information unavailable."
-    )
-
-
-st.divider()
-
-
-# ============================================================
-# SCENARIO TESTING
-# ============================================================
-
-st.markdown(
-    '<div class="section-title">'
-    "Scenario Testing"
-    "</div>",
-    unsafe_allow_html=True,
-)
-
-st.caption(
-    "Run controlled security scenarios against the mock EVGuard gateway."
-)
-
-
-if scenarios_data:
-
-    scenarios = scenarios_data.get(
-        "items",
-        [],
-    )
-
-
-    for start in range(
-        0,
-        len(scenarios),
-        4,
-    ):
-
-        row = scenarios[
-            start:start + 4
-        ]
-
-        columns = st.columns(4)
-
-
-        for index, scenario in enumerate(row):
-
-            name = scenario.get(
-                "name",
-                "",
-            )
-
-            title = scenario.get(
-                "title",
-                name,
-            )
-
-
-            with columns[index]:
-
-                if st.button(
-                    title,
-                    key=f"scenario_{name}",
-                    use_container_width=True,
-                ):
-
-                    with st.spinner(
-                        f"Running {title}..."
-                    ):
-
-                        result = (
-                            api_client.run_scenario(
-                                name
-                            )
-                        )
-
-                    st.session_state[
-                        "scenario_result"
-                    ] = result
-
-                    st.session_state[
-                        "scenario_name"
-                    ] = name
-
-
-    scenario_result = st.session_state.get(
-        "scenario_result"
-    )
-
-    scenario_name = st.session_state.get(
-        "scenario_name"
-    )
-
-
-    if scenario_result:
-
-        st.markdown("---")
-
-        st.write(
-            f"**Last scenario:** "
-            f"`{scenario_name}`"
-        )
-
-        passed = scenario_result.get(
-            "passed",
-            False,
-        )
-
-
-        if passed:
-            st.success(
-                "✅ Scenario completed successfully."
-            )
-        else:
-            st.error(
-                "⛔ Scenario failed."
-            )
-
-
-        results = scenario_result.get(
-            "results",
-            [],
-        )
-
-
-        if results:
-
-            for result in results:
-
-                expected = result.get(
-                    "expect",
-                    "—",
-                )
-
-                expected_rule = result.get(
-                    "expect_rule",
-                    "—",
-                )
-
-                result_passed = result.get(
-                    "passed",
-                    False,
-                )
-
-
-                if result_passed:
-                    icon = "✅"
-                else:
-                    icon = "❌"
-
-
-                st.write(
-                    f"{icon} "
-                    f"Step {result.get('step', '—')} "
-                    f"| Expected: `{expected}` "
-                    f"| Rule: `{expected_rule}`"
-                )
-
-
-                decision_data = result.get(
-                    "decision",
-                    {},
-                )
-
-
-                if decision_data:
-
-                    st.caption(
-                        f"Actual: "
-                        f"`{decision_data.get('decision', '—')}` "
-                        f"| "
-                        f"`{decision_data.get('rule_triggered', '—')}` "
-                        f"| "
-                        f"{decision_data.get('reason', '')}"
-                    )
-
-else:
-    st.info(
-        "No scenarios available."
     )
 
 
@@ -843,7 +1211,7 @@ if audit_rows:
 
     st.dataframe(
         audit_rows,
-        use_container_width=True,
+        **STRETCH,
         hide_index=True,
     )
 
@@ -875,6 +1243,6 @@ st.divider()
 
 st.caption(
     "EVGuard Prototype | "
-    "Mock data mode | "
+    f"{MODE_LABEL} | "
     "Security decisions are fail-closed."
 )
